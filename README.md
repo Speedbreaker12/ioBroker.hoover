@@ -273,6 +273,10 @@ AC Heizen
 
 ## Changelog
 
+### 0.1.4
+
+- (Speedbreaker) optimized code for better mqtt error handling
+
 ### 0.1.3
 
 - (Speedbreaker) Updated dependencies

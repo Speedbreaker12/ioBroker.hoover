@@ -1,8 +1,13 @@
 {
   "common": {
     "name": "hoover",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "news": {
+	"0.1.4": {
+        "en": "optimized code for better mqtt error handling",
+        "de": "Code optimiert für bessere mqtt fehlerbehandlung"
+      },
+
       "0.1.3": {
         "en": "updated dependencies",
         "de": "Abhängigkeiten aktualisiert"
