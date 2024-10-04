@@ -36,8 +36,9 @@ class Hoover extends utils.Adapter {
         this.userAgent = "ioBroker v0.0.7";
 
         this.subscribedTopics = []; // To keep track of subscribed topics
+        this.deviceIdToName = {};   // Mapping von Geräte-ID zu Gerätenamen
 
-        this.reloginInProgress = false; // Flag to prevent parallel relogins
+        this.reloginInProgress = false; // Flag zur Verhinderung paralleler Relogins
 
         this.on("ready", this.onReady.bind(this));
         this.on("stateChange", this.onStateChange.bind(this));
@@ -337,437 +338,442 @@ class Hoover extends utils.Adapter {
 
                 this.log.info("Login successful");
                 this.setState("info.connection", true, true);
+            } catch (error) {
+                this.log.error("Login failed");
+                this.handleError(error);
             }
-        } catch (error) {
-            this.log.error("Login failed");
-            this.handleError(error);
-        }
-    }
-
-    async getDeviceList() {
-        try {
-            const deviceListUrl =
-                this.config.type === "wizard"
-                    ? "https://simply-fi.herokuapp.com/api/v1/appliances.json?with_hidden_programs=1"
-                    : "https://api-iot.he.services/commands/v1/appliance";
-
-            const response = await this.requestClient.get(deviceListUrl, {
-                headers: this.getAuthHeaders(),
-            });
-
-            const appliances = this.config.type === "wizard" ? response.data : response.data.payload.appliances;
-
-            if (!appliances) {
-                this.log.error("No devices found");
-                return;
-            }
-
-            this.log.info(`Devices found: ${appliances.length}`);
-
-            for (const device of appliances) {
-                const id = device.macAddress || device.serialNumber || device.id;
-                const name = [device.applianceTypeName, device.modelName, device.nickName, device.appliance_model]
-                    .filter(Boolean)
-                    .join(" ");
-
-                await this.createDeviceObjects(id, name, device);
-            }
-        } catch (error) {
-            this.log.error("Error fetching device list");
-            this.handleError(error);
-        }
-    }
-
-    async createDeviceObjects(id, name, device) {
-        await this.setObjectNotExistsAsync(id, {
-            type: "device",
-            common: { name },
-            native: {},
-        });
-
-        await this.setObjectNotExistsAsync(`${id}.remote`, {
-            type: "channel",
-            common: { name: "Remote Control" },
-            native: {},
-        });
-
-        const remoteCommands = [
-            { command: "refresh", name: "True = Refresh", type: "boolean", role: "button" },
-            { command: "stopProgram", name: "True = Stop", type: "boolean", role: "button" },
-        ];
-
-        if (this.config.type === "wizard") {
-            remoteCommands.push({
-                command: "send",
-                name: "Send a custom command",
-                type: "string",
-                role: "text",
-                def: `StartStop=1&Program=P2&DelayStart=0&TreinUno=1&Eco=1&MetaCarico=0&ExtraDry=0&OpzProg=0`,
-            });
-        } else {
-            remoteCommands.push({
-                command: "send",
-                name: "Send a custom command",
-                type: "json",
-                role: "json",
-                def: `{ "command": "example" }`,
-            });
         }
 
-        for (const remote of remoteCommands) {
-            await this.setObjectNotExistsAsync(`${id}.remote.${remote.command}`, {
-                type: "state",
-                common: {
-                    name: remote.name,
-                    type: remote.type,
-                    role: remote.role,
-                    def: remote.def,
-                    write: true,
-                    read: true,
-                },
+        async getDeviceList() {
+            try {
+                const deviceListUrl =
+                    this.config.type === "wizard"
+                        ? "https://simply-fi.herokuapp.com/api/v1/appliances.json?with_hidden_programs=1"
+                        : "https://api-iot.he.services/commands/v1/appliance";
+
+                const response = await this.requestClient.get(deviceListUrl, {
+                    headers: this.getAuthHeaders(),
+                });
+
+                const appliances = this.config.type === "wizard" ? response.data : response.data.payload.appliances;
+
+                if (!appliances) {
+                    this.log.error("No devices found");
+                    return;
+                }
+
+                this.log.info(`Devices found: ${appliances.length}`);
+
+                for (const device of appliances) {
+                    const id = device.macAddress || device.serialNumber || device.id;
+                    const name = [device.applianceTypeName, device.modelName, device.nickName, device.appliance_model]
+                        .filter(Boolean)
+                        .join(" ");
+
+                    this.deviceIdToName[id] = name; // Mapping von Geräte-ID zu Gerätenamen
+
+                    await this.createDeviceObjects(id, name, device);
+                }
+            } catch (error) {
+                this.log.error("Error fetching device list");
+                this.handleError(error);
+            }
+        }
+
+        async createDeviceObjects(id, name, device) {
+            await this.setObjectNotExistsAsync(id, {
+                type: "device",
+                common: { name },
                 native: {},
             });
-        }
 
-        if (this.config.type === "wizard") {
-            this.json2iob.parse(id, device);
-        } else {
-            await this.setObjectNotExistsAsync(`${id}.general`, {
+            await this.setObjectNotExistsAsync(`${id}.remote`, {
                 type: "channel",
-                common: { name: "General Information" },
+                common: { name: "Remote Control" },
                 native: {},
             });
-            this.json2iob.parse(`${id}.general`, device);
-        }
-    }
 
-    async connectMqtt() {
-        if (this.config.type === "wizard") return;
+            const remoteCommands = [
+                { command: "refresh", name: "True = Refresh", type: "boolean", role: "button" },
+                { command: "stopProgram", name: "True = Stop", type: "boolean", role: "button" },
+            ];
 
-        try {
-            // Terminate existing MQTT connection if any
-            if (this.device) {
-                this.device.end(false, () => {
-                    this.log.info("Previous MQTT connection terminated");
+            if (this.config.type === "wizard") {
+                remoteCommands.push({
+                    command: "send",
+                    name: "Send a custom command",
+                    type: "string",
+                    role: "text",
+                    def: `StartStop=1&Program=P2&DelayStart=0&TreinUno=1&Eco=1&MetaCarico=0&ExtraDry=0&OpzProg=0`,
+                });
+            } else {
+                remoteCommands.push({
+                    command: "send",
+                    name: "Send a custom command",
+                    type: "json",
+                    role: "json",
+                    def: `{ "command": "example" }`,
                 });
             }
 
-            this.log.info("Connecting to MQTT");
+            for (const remote of remoteCommands) {
+                await this.setObjectNotExistsAsync(`${id}.remote.${remote.command}`, {
+                    type: "state",
+                    common: {
+                        name: remote.name,
+                        type: remote.type,
+                        role: remote.role,
+                        def: remote.def,
+                        write: true,
+                        read: true,
+                    },
+                    native: {},
+                });
+            }
 
-            // MQTT client options
-            const mqttOptions = {
-                protocol: "wss-custom-auth",
-                host: "a30f6tqw0oh1x0-ats.iot.eu-west-1.amazonaws.com",
-                customAuthHeaders: {
-                    "X-Amz-CustomAuthorizer-Name": "candy-iot-authorizer",
-                    "X-Amz-CustomAuthorizer-Signature": this.session.tokenSigned,
-                    token: this.session.id_token,
-                },
-                reconnectPeriod: 5000, // Try to reconnect every 5 seconds
-                keepalive: 60, // Keepalive interval in seconds
-                connectTimeout: 30 * 1000, // 30 seconds timeout
-            };
+            if (this.config.type === "wizard") {
+                this.json2iob.parse(id, device);
+            } else {
+                await this.setObjectNotExistsAsync(`${id}.general`, {
+                    type: "channel",
+                    common: { name: "General Information" },
+                    native: {},
+                });
+                this.json2iob.parse(`${id}.general`, device);
+            }
+        }
 
-            this.device = awsIot.device(mqttOptions);
+        async connectMqtt() {
+            if (this.config.type === "wizard") return;
 
-            this.device.on("connect", (connack) => {
-                if (connack && connack.sessionPresent === false) {
-                    this.log.info("MQTT connected (new session), resubscribing to topics");
-                } else {
-                    this.log.info("MQTT connected");
+            try {
+                // Terminate existing MQTT connection if any
+                if (this.device) {
+                    this.device.end(false, () => {
+                        this.log.info("Previous MQTT connection terminated");
+                    });
                 }
 
-                // Subscribe to topics
+                this.log.info("Connecting to MQTT");
+
+                // MQTT client options
+                const mqttOptions = {
+                    protocol: "wss-custom-auth",
+                    host: "a30f6tqw0oh1x0-ats.iot.eu-west-1.amazonaws.com",
+                    customAuthHeaders: {
+                        "X-Amz-CustomAuthorizer-Name": "candy-iot-authorizer",
+                        "X-Amz-CustomAuthorizer-Signature": this.session.tokenSigned,
+                        token: this.session.id_token,
+                    },
+                    reconnectPeriod: 5000, // Try to reconnect every 5 seconds
+                    keepalive: 60, // Keepalive interval in seconds
+                    connectTimeout: 30 * 1000, // 30 seconds timeout
+                };
+
+                this.device = awsIot.device(mqttOptions);
+
+                this.device.on("connect", (connack) => {
+                    if (connack && connack.sessionPresent === false) {
+                        this.log.info("MQTT connected (new session), resubscribing to topics");
+                    } else {
+                        this.log.info("MQTT connected");
+                    }
+
+                    // Subscribe to topics
+                    for (const device of this.deviceArray) {
+                        const id = device.macAddress || device.serialNumber;
+                        const name = this.deviceIdToName[id] || id;
+                        const topics = [
+                            `haier/things/${id}/event/appliancestatus/update`,
+                            `haier/things/${id}/event/discovery/update`,
+                            `$aws/events/presence/connected/${id}`,
+                        ];
+                        for (const topic of topics) {
+                            this.device.subscribe(topic, (err) => {
+                                if (err) {
+                                    this.log.error(`Error subscribing to ${topic} for device ${name}: ${err.message}`);
+                                } else {
+                                    this.log.info(`Subscribed to: ${topic} for device ${name}`);
+                                    if (!this.subscribedTopics.includes(topic)) {
+                                        this.subscribedTopics.push(topic);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+
+                this.device.on("message", (topic, payload) => {
+                    try {
+                        const message = JSON.parse(payload.toString());
+                        const id = message.macAddress || message.serialNumber;
+                        const name = this.deviceIdToName[id] || id;
+                        this.log.debug(`Message received on ${topic} for device ${name}: ${payload.toString()}`);
+                        this.json2iob.parse(`${id}.stream`, message, {
+                            preferedArrayName: "parName",
+                            channelName: "Data from MQTT Stream",
+                        });
+                    } catch (error) {
+                        this.log.error("Error processing MQTT message");
+                        this.log.error(error);
+                    }
+                });
+
+                this.device.on("error", (error) => {
+                    this.log.error("MQTT Error:");
+                    this.log.error(error);
+                    // Optional: Handle MQTT-Fehler weiter
+                });
+
+                this.device.on("reconnect", () => {
+                    this.log.info("MQTT attempting to reconnect");
+                });
+
+                this.device.on("offline", () => {
+                    this.log.warn("MQTT is offline");
+                    this.handleMqttDisconnect(); // Methode zur Handhabung der Trennung aufrufen
+                });
+
+                this.device.on("close", () => {
+                    this.log.warn("MQTT connection closed");
+                    this.handleMqttDisconnect(); // Methode zur Handhabung der Trennung aufrufen
+                });
+
+                this.device.on("end", () => {
+                    this.log.info("MQTT connection ended");
+                });
+            } catch (error) {
+                this.log.error("Error connecting to MQTT");
+                this.handleError(error);
+            }
+        }
+
+        /**
+         * Handles MQTT disconnection by issuing a warning and performing a re-login.
+         */
+        async handleMqttDisconnect() {
+            if (this.reloginInProgress) return; // Verhindert parallele Relogins
+            this.reloginInProgress = true;
+            this.log.warn("MQTT connection lost, initiating re-login");
+
+            try {
+                await this.login(); // Führt den Login-Prozess erneut durch
+
+                // Nach erfolgreichem Login, verbinde erneut mit MQTT
+                await this.connectMqtt();
+            } catch (error) {
+                this.log.error("Re-login after MQTT disconnection failed");
+                this.handleError(error);
+                // Wiederholen nach 1 Minute
+                setTimeout(() => this.handleMqttDisconnect(), 60 * 1000);
+            } finally {
+                this.reloginInProgress = false;
+            }
+        }
+
+        async updateDevices() {
+            try {
+                const statusArray = [
+                    {
+                        path: "context",
+                        url: "https://api-iot.he.services/commands/v1/context?macAddress=$mac&applianceType=$type&category=CYCLE",
+                        desc: "Current Context",
+                    },
+                ];
+
                 for (const device of this.deviceArray) {
                     const id = device.macAddress || device.serialNumber;
-                    const topics = [
-                        `haier/things/${id}/event/appliancestatus/update`,
-                        `haier/things/${id}/event/discovery/update`,
-                        `$aws/events/presence/connected/${id}`,
-                    ];
-                    for (const topic of topics) {
-                        this.device.subscribe(topic, (err) => {
-                            if (err) {
-                                this.log.error(`Error subscribing to ${topic}: ${err.message}`);
-                            } else {
-                                this.log.info(`Subscribed to: ${topic}`);
-                                if (!this.subscribedTopics.includes(topic)) {
-                                    this.subscribedTopics.push(topic);
-                                }
-                            }
+                    const applianceType = device.applianceTypeName;
+
+                    for (const element of statusArray) {
+                        const url = element.url.replace("$mac", id).replace("$type", applianceType);
+
+                        const response = await this.requestClient.get(url, {
+                            headers: this.getAuthHeaders(),
+                        });
+
+                        const data = response.data.payload || response.data;
+
+                        this.json2iob.parse(`${id}.${element.path}`, data, {
+                            channelName: element.desc,
                         });
                     }
                 }
-            });
-
-            this.device.on("message", (topic, payload) => {
-                this.log.debug(`Message received on ${topic}: ${payload.toString()}`);
-                try {
-                    const message = JSON.parse(payload.toString());
-                    const id = message.macAddress || message.serialNumber;
-                    this.json2iob.parse(`${id}.stream`, message, {
-                        preferedArrayName: "parName",
-                        channelName: "Data from MQTT Stream",
-                    });
-                } catch (error) {
-                    this.log.error("Error processing MQTT message");
-                    this.log.error(error);
-                }
-            });
-
-            this.device.on("error", (error) => {
-                this.log.error("MQTT Error:");
-                this.log.error(error);
-                // Optionally, you can call handleMqttDisconnect here if desired
-                // this.handleMqttDisconnect();
-            });
-
-            this.device.on("reconnect", () => {
-                this.log.info("MQTT attempting to reconnect");
-            });
-
-            this.device.on("offline", () => {
-                this.log.warn("MQTT is offline");
-                this.handleMqttDisconnect(); // Call the method to handle disconnection
-            });
-
-            this.device.on("close", () => {
-                this.log.warn("MQTT connection closed");
-                this.handleMqttDisconnect(); // Call the method to handle disconnection
-            });
-
-            this.device.on("end", () => {
-                this.log.info("MQTT connection ended");
-            });
-        } catch (error) {
-            this.log.error("Error connecting to MQTT");
-            this.handleError(error);
-        }
-    }
-
-    /**
-     * Handles MQTT disconnection by issuing a warning and performing a re-login.
-     */
-    async handleMqttDisconnect() {
-        if (this.reloginInProgress) return; // Prevent parallel relogins
-        this.reloginInProgress = true;
-        this.log.warn("MQTT connection lost, initiating re-login");
-
-        try {
-            await this.login(); // Perform the login process again
-
-            // After successful login, reconnect to MQTT
-            await this.connectMqtt();
-        } catch (error) {
-            this.log.error("Re-login after MQTT disconnection failed");
-            this.handleError(error);
-            // Retry after 1 minute
-            setTimeout(() => this.handleMqttDisconnect(), 60 * 1000);
-        } finally {
-            this.reloginInProgress = false;
-        }
-    }
-
-    async updateDevices() {
-        try {
-            const statusArray = [
-                {
-                    path: "context",
-                    url: "https://api-iot.he.services/commands/v1/context?macAddress=$mac&applianceType=$type&category=CYCLE",
-                    desc: "Current Context",
-                },
-            ];
-
-            for (const device of this.deviceArray) {
-                const id = device.macAddress || device.serialNumber;
-                const applianceType = device.applianceTypeName;
-
-                for (const element of statusArray) {
-                    const url = element.url.replace("$mac", id).replace("$type", applianceType);
-
-                    const response = await this.requestClient.get(url, {
-                        headers: this.getAuthHeaders(),
-                    });
-
-                    const data = response.data.payload || response.data;
-
-                    this.json2iob.parse(`${id}.${element.path}`, data, {
-                        channelName: element.desc,
-                    });
-                }
+            } catch (error) {
+                this.log.error("Error updating devices");
+                this.handleError(error);
             }
-        } catch (error) {
-            this.log.error("Error updating devices");
-            this.handleError(error);
         }
-    }
 
-    getAuthHeaders() {
-        return {
-            accept: "application/json, text/plain, */*",
-            "id-token": this.session.id_token,
-            "cognito-token": this.session.Token,
-            "user-agent": "hOn/3 CFNetwork/1240.0.4 Darwin/20.6.0",
-            "accept-language": "en-US",
-            Authorization: `Bearer ${this.session.id_token}`,
-            "Salesforce-Auth": 1,
-        };
-    }
+        getAuthHeaders() {
+            return {
+                accept: "application/json, text/plain, */*",
+                "id-token": this.session.id_token,
+                "cognito-token": this.session.Token,
+                "user-agent": "hOn/3 CFNetwork/1240.0.4 Darwin/20.6.0",
+                "accept-language": "en-US",
+                Authorization: `Bearer ${this.session.id_token}`,
+                "Salesforce-Auth": 1,
+            };
+        }
 
-    async refreshToken() {
-        try {
-            if (!this.session.refresh_token) {
-                this.log.error("No refresh token available, re-login required");
-                await this.login();
+        async refreshToken() {
+            try {
+                if (!this.session.refresh_token) {
+                    this.log.error("No refresh token available, re-login required");
+                    await this.login();
+                    return;
+                }
+
+                const refreshUrl =
+                    this.config.type === "wizard"
+                        ? "https://haiereurope.my.site.com/HooverApp/services/oauth2/token"
+                        : "https://account2.hon-smarthome.com/services/oauth2/token";
+
+                const response = await this.requestClient.post(
+                    refreshUrl,
+                    qs.stringify({
+                        grant_type: "refresh_token",
+                        client_id:
+                            this.config.type === "wizard"
+                                ? "3MVG9QDx8IX8nP5T2Ha8ofvlmjKuido4mcuSVCv4GwStG0Lf84ccYQylvDYy9d_ZLtnyAPzJt4khJoNYn_QVB"
+                                : "3MVG9QDx8IX8nP5T2Ha8ofvlmjLZl5L_gvfbT9.HJvpHGKoAS_dcMN8LYpTSYeVFCraUnV.2Ag1Ki7m4znVO6",
+                        refresh_token: this.session.refresh_token,
+                    }),
+                    {
+                        headers: {
+                            "Content-Type": "application/x-www-form-urlencoded",
+                            Accept: "application/json",
+                        },
+                    }
+                );
+
+                this.session = { ...this.session, ...response.data };
+                this.log.info("Token successfully refreshed");
+                this.setState("info.connection", true, true);
+            } catch (error) {
+                this.log.error("Error refreshing token");
+                this.handleError(error);
+                this.log.error("Initiating re-login in 1 minute");
+                setTimeout(() => this.login(), 60 * 1000);
+            }
+        }
+
+        async onUnload(callback) {
+            try {
+                this.setState("info.connection", false, true);
+                if (this.reloginTimeout) clearTimeout(this.reloginTimeout);
+                if (this.refreshTokenTimeout) clearTimeout(this.refreshTokenTimeout);
+                if (this.updateInterval) clearInterval(this.updateInterval);
+                if (this.refreshTokenInterval) clearInterval(this.refreshTokenInterval);
+
+                if (this.device) {
+                    this.device.end(false, () => {
+                        this.log.info("MQTT connection terminated");
+                        callback();
+                    });
+                } else {
+                    callback();
+                }
+            } catch (e) {
+                callback();
+            }
+        }
+
+        async onStateChange(id, state) {
+            if (!state || state.ack) return;
+
+            const [_, __, deviceId, category, command] = id.split(".");
+            if (category !== "remote") return;
+
+            try {
+                switch (command) {
+                    case "refresh":
+                        await this.updateDevices();
+                        break;
+
+                    case "stopProgram":
+                        await this.sendCommand(deviceId, "stopProgram", state.val);
+                        break;
+
+                    case "send":
+                        await this.sendCustomCommand(deviceId, state.val);
+                        break;
+
+                    default:
+                        this.log.warn(`Unknown command: ${command}`);
+                }
+            } catch (error) {
+                this.log.error(`Error processing command ${command}`);
+                this.handleError(error);
+            }
+        }
+
+        async sendCommand(deviceId, commandName, value) {
+            const data = {
+                macAddress: deviceId,
+                timestamp: new Date().toISOString(),
+                commandName,
+                transactionId: `${deviceId}_${Date.now()}`,
+                parameters: {
+                    onOffStatus: value ? "1" : "0",
+                },
+            };
+
+            const url =
+                this.config.type === "wizard"
+                    ? "https://simply-fi.herokuapp.com/api/v1/commands.json"
+                    : "https://api-iot.he.services/commands/v1/send";
+
+            await this.requestClient.post(url, data, {
+                headers: this.getAuthHeaders(),
+            });
+
+            const name = this.deviceIdToName[deviceId] || deviceId;
+            this.log.info(`Command ${commandName} sent to device ${name}`);
+        }
+
+        async sendCustomCommand(deviceId, commandData) {
+            let data;
+            try {
+                data = this.config.type === "wizard" ? commandData : JSON.parse(commandData);
+            } catch (error) {
+                this.log.error("Invalid JSON in command");
                 return;
             }
 
-            const refreshUrl =
+            if (this.config.type !== "wizard") {
+                data.macAddress = deviceId;
+                data.timestamp = new Date().toISOString();
+                data.transactionId = `${deviceId}_${Date.now()}`;
+            }
+
+            const url =
                 this.config.type === "wizard"
-                    ? "https://haiereurope.my.site.com/HooverApp/services/oauth2/token"
-                    : "https://account2.hon-smarthome.com/services/oauth2/token";
+                    ? "https://simply-fi.herokuapp.com/api/v1/commands.json"
+                    : "https://api-iot.he.services/commands/v1/send";
 
-            const response = await this.requestClient.post(
-                refreshUrl,
-                qs.stringify({
-                    grant_type: "refresh_token",
-                    client_id:
-                        this.config.type === "wizard"
-                            ? "3MVG9QDx8IX8nP5T2Ha8ofvlmjKuido4mcuSVCv4GwStG0Lf84ccYQylvDYy9d_ZLtnyAPzJt4khJoNYn_QVB"
-                            : "3MVG9QDx8IX8nP5T2Ha8ofvlmjLZl5L_gvfbT9.HJvpHGKoAS_dcMN8LYpTSYeVFCraUnV.2Ag1Ki7m4znVO6",
-                    refresh_token: this.session.refresh_token,
-                }),
-                {
-                    headers: {
-                        "Content-Type": "application/x-www-form-urlencoded",
-                        Accept: "application/json",
-                    },
-                }
-            );
+            await this.requestClient.post(url, data, {
+                headers: this.getAuthHeaders(),
+            });
 
-            this.session = { ...this.session, ...response.data };
-            this.log.info("Token successfully refreshed");
-            this.setState("info.connection", true, true);
-        } catch (error) {
-            this.log.error("Error refreshing token");
-            this.handleError(error);
-            this.log.error("Initiating re-login in 1 minute");
-            setTimeout(() => this.login(), 60 * 1000);
+            const name = this.deviceIdToName[deviceId] || deviceId;
+            this.log.info(`Custom command sent to device ${name}`);
         }
-    }
 
-    async onUnload(callback) {
-        try {
-            this.setState("info.connection", false, true);
-            if (this.reloginTimeout) clearTimeout(this.reloginTimeout);
-            if (this.refreshTokenTimeout) clearTimeout(this.refreshTokenTimeout);
-            if (this.updateInterval) clearInterval(this.updateInterval);
-            if (this.refreshTokenInterval) clearInterval(this.refreshTokenInterval);
-
-            if (this.device) {
-                this.device.end(false, () => {
-                    this.log.info("MQTT connection terminated");
-                    callback();
-                });
+        handleError(error) {
+            if (error.response) {
+                this.log.error(`Status: ${error.response.status}`);
+                this.log.error(`Response: ${JSON.stringify(error.response.data)}`);
             } else {
-                callback();
+                this.log.error(`Error: ${error.message}`);
             }
-        } catch (e) {
-            callback();
         }
     }
 
-    async onStateChange(id, state) {
-        if (!state || state.ack) return;
-
-        const [_, __, deviceId, category, command] = id.split(".");
-        if (category !== "remote") return;
-
-        try {
-            switch (command) {
-                case "refresh":
-                    await this.updateDevices();
-                    break;
-
-                case "stopProgram":
-                    await this.sendCommand(deviceId, "stopProgram", state.val);
-                    break;
-
-                case "send":
-                    await this.sendCustomCommand(deviceId, state.val);
-                    break;
-
-                default:
-                    this.log.warn(`Unknown command: ${command}`);
-            }
-        } catch (error) {
-            this.log.error(`Error processing command ${command}`);
-            this.handleError(error);
-        }
+    if (require.main !== module) {
+        module.exports = (options) => new Hoover(options);
+    } else {
+        new Hoover();
     }
-
-    async sendCommand(deviceId, commandName, value) {
-        const data = {
-            macAddress: deviceId,
-            timestamp: new Date().toISOString(),
-            commandName,
-            transactionId: `${deviceId}_${Date.now()}`,
-            parameters: {
-                onOffStatus: value ? "1" : "0",
-            },
-        };
-
-        const url =
-            this.config.type === "wizard"
-                ? "https://simply-fi.herokuapp.com/api/v1/commands.json"
-                : "https://api-iot.he.services/commands/v1/send";
-
-        await this.requestClient.post(url, data, {
-            headers: this.getAuthHeaders(),
-        });
-
-        this.log.info(`Command ${commandName} sent to device ${deviceId}`);
-    }
-
-    async sendCustomCommand(deviceId, commandData) {
-        let data;
-        try {
-            data = this.config.type === "wizard" ? commandData : JSON.parse(commandData);
-        } catch (error) {
-            this.log.error("Invalid JSON in command");
-            return;
-        }
-
-        if (this.config.type !== "wizard") {
-            data.macAddress = deviceId;
-            data.timestamp = new Date().toISOString();
-            data.transactionId = `${deviceId}_${Date.now()}`;
-        }
-
-        const url =
-            this.config.type === "wizard"
-                ? "https://simply-fi.herokuapp.com/api/v1/commands.json"
-                : "https://api-iot.he.services/commands/v1/send";
-
-        await this.requestClient.post(url, data, {
-            headers: this.getAuthHeaders(),
-        });
-
-        this.log.info(`Custom command sent to device ${deviceId}`);
-    }
-
-    handleError(error) {
-        if (error.response) {
-            this.log.error(`Status: ${error.response.status}`);
-            this.log.error(`Response: ${JSON.stringify(error.response.data)}`);
-        } else {
-            this.log.error(`Error: ${error.message}`);
-        }
-    }
-}
-
-if (require.main !== module) {
-    module.exports = (options) => new Hoover(options);
-} else {
-    new Hoover();
 }
