@@ -1,8 +1,9 @@
 {
   "type": "panel",
-  "items": [
-    {
-      "type": "text",
+  "items": {
+    "username": {
+      "type": "input",
+      "inputType": "text",
       "attr": "username",
       "label": {
         "en": "App Email",
@@ -17,11 +18,25 @@
         "uk": "Електронна пошта додатка",
         "zh-cn": "应用电子邮件"
       },
+      "placeholder": {
+        "en": "Enter your app email",
+        "de": "Geben Sie Ihre App-E-Mail ein",
+        "ru": "Введите электронную почту приложения",
+        "pt": "Digite o email do aplicativo",
+        "nl": "Voer je app-e-mail in",
+        "fr": "Entrez votre e-mail d'application",
+        "it": "Inserisci la tua e-mail dell'app",
+        "es": "Introduce el correo electrónico de la aplicación",
+        "pl": "Wprowadź e-mail aplikacji",
+        "uk": "Введіть електронну пошту додатка",
+        "zh-cn": "输入您的应用电子邮件"
+      },
       "newLine": true,
       "sm": 3
     },
-    {
-      "type": "password",
+    "password": {
+      "type": "input",
+      "inputType": "password",
       "attr": "password",
       "label": {
         "en": "App Password",
@@ -36,12 +51,25 @@
         "uk": "Пароль додатка",
         "zh-cn": "应用密码"
       },
+      "placeholder": {
+        "en": "Enter your app password",
+        "de": "Geben Sie Ihr App-Passwort ein",
+        "ru": "Введите пароль приложения",
+        "pt": "Digite a senha do aplicativo",
+        "nl": "Voer je app-wachtwoord in",
+        "fr": "Entrez le mot de passe de l'application",
+        "it": "Inserisci la password dell'app",
+        "es": "Introduce la contraseña de la aplicación",
+        "pl": "Wprowadź hasło aplikacji",
+        "uk": "Введіть пароль додатка",
+        "zh-cn": "输入您的应用密码"
+      },
       "newLine": true,
       "repeat": false,
       "visible": true,
       "sm": 3
     },
-    {
+    "appType": {
       "type": "select",
       "attr": "appType",
       "label": {
@@ -94,8 +122,9 @@
         }
       ]
     },
-    {
-      "type": "number",
+    "interval": {
+      "type": "input",
+      "inputType": "number",
       "attr": "interval",
       "label": {
         "en": "Update interval (in minutes)",
@@ -110,9 +139,22 @@
         "uk": "Інтервал оновлення (у хвилинах)",
         "zh-cn": "更新间隔（分钟）"
       },
+      "placeholder": {
+        "en": "Enter update interval",
+        "de": "Geben Sie das Aktualisierungsintervall ein",
+        "ru": "Введите интервал обновления",
+        "pt": "Digite o intervalo de atualização",
+        "nl": "Voer update-interval in",
+        "fr": "Entrez l'intervalle de mise à jour",
+        "it": "Inserisci l'intervallo di aggiornamento",
+        "es": "Introduce el intervalo de actualización",
+        "pl": "Wprowadź interwał aktualizacji",
+        "uk": "Введіть інтервал оновлення",
+        "zh-cn": "输入更新间隔"
+      },
       "newLine": true,
       "min": 1,
       "sm": 2
     }
-  ]
+  }
 }
