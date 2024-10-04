@@ -33,7 +33,7 @@ class Hoover extends utils.Adapter {
             }),
         });
         this.session = {};
-        this.userAgent = "ioBroker v0.0.7";
+        this.userAgent = "ioBroker v1.4";
 
         this.subscribedTopics = []; // To keep track of subscribed topics
 
