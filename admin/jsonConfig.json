@@ -1,5 +1,5 @@
 {
-  "i18n": false,
+  "i18n": true,
   "items": {
     "username": {
       "type": "text",
@@ -37,7 +37,7 @@
         "zh-cn": "应用密码"
       }
     },
-    "type": {
+    "appType": {  // Schlüssel umbenannt von "type" zu "appType"
       "type": "select",
       "newLine": true,
       "sm": 3,
@@ -53,15 +53,15 @@
       ],
       "label": {
         "en": "App Name",
-        "de": "App Name",
+        "de": "App-Name",
         "ru": "Имя приложения",
         "pt": "Nome do aplicativo",
         "nl": "App Naam",
-        "fr": "App Name",
+        "fr": "Nom de l'application",
         "it": "Nome dell'app",
         "es": "Nombre de la aplicación",
-        "pl": "Nazwa",
-        "zh-cn": "附录"
+        "pl": "Nazwa aplikacji",
+        "zh-cn": "应用名称"
       }
     },
     "interval": {
@@ -71,7 +71,7 @@
       "sm": 2,
       "label": {
         "en": "Update interval (in minutes)",
-        "de": "Aktualisierungsintervall für Wizard App (in Minuten)",
+        "de": "Aktualisierungsintervall (in Minuten)",
         "ru": "Интервал обновления (в минутах)",
         "pt": "Intervalo de atualização (em minutos)",
         "nl": "Update-interval (in minuten)",
