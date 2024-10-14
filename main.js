@@ -4,8 +4,6 @@
  * Created with @iobroker/create-adapter v1.34.1
  */
 
-// The adapter-core module gives you access to the core ioBroker functions
-// you need to create an adapter
 const utils = require("@iobroker/adapter-core");
 const axios = require("axios").default;
 const Json2iob = require("./lib/json2iob");
@@ -16,9 +14,6 @@ const { HttpsCookieAgent } = require("http-cookie-agent/http");
 const awsIot = require("aws-iot-device-sdk");
 
 class Hoover extends utils.Adapter {
-  /**
-   * @param {Partial<utils.AdapterOptions>} [options={}]
-   */
   constructor(options) {
     super({
       ...options,
@@ -40,11 +35,7 @@ class Hoover extends utils.Adapter {
     });
   }
 
-  /**
-   * Is called when databases are connected and adapter received configuration.
-   */
   async onReady() {
-    // Reset the connection indicator during startup
     this.setState("info.connection", false, true);
     if (this.config.interval < 0.5) {
       this.log.info("Set interval to minimum 0.5");
@@ -149,12 +140,8 @@ class Hoover extends utils.Adapter {
         let fwuid = res.headers.link;
         if (fwuid) {
           fwuid = decodeURIComponent(fwuid);
-
           try {
-            // Debugging output
             this.log.debug("Received fwuid: " + fwuid);
-
-            // Safeguard with try-catch to handle JSON parsing issues
             const idsJSON = JSON.parse("{" + fwuid.split("/{")[1].split("/app")[0]);
             idsJSON.fwuid = fwuid.split("auraFW/javascript/")[1].split("/")[0];
             return idsJSON;
@@ -239,42 +226,8 @@ class Hoover extends utils.Adapter {
           this.log.error(error);
           error.response && this.log.error(JSON.stringify(error.response.data));
         });
-    } else {
-      step01Url = await this.requestClient({
-        method: "post",
-        url: "https://account2.hon-smarthome.com/s/sfsites/aura?r=3&other.LightningLoginCustom.login=1",
-        headers: {
-          Accept: "*/*",
-          "Accept-Language": "de-de",
-          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-        },
-        data:
-          "message=%7B%22actions%22%3A%5B%7B%22id%22%3A%22106%3Ba%22%2C%22descriptor%22%3A%22apex%3A%2F%2FLightningLoginCustomController%2FACTION%24login%22%2C%22callingDescriptor%22%3A%22markup%3A%2F%2Fc%3AloginForm%22%2C%22params%22%3A%7B%22username%22%3A%22" +
-          this.config.username +
-          "%22%2C%22password%22%3A%22" +
-          this.config.password +
-          "%22%2C%22startUrl%22%3A%22%2Fsetup%2Fsecur%2FRemoteAccessAuthorizationPage.apexp%3Fsource%3D" +
-          initSession.source +
-          "%26display%3Dtouch%22%7D%7D%5D%7D&aura.context=" +
-          JSON.stringify(fwuid) +
-          "&aura.pageURI=%2Fs%2Flogin%2F%3Flanguage%3Dde%26startURL%3D%252Fsetup%252Fsecur%252FRemoteAccessAuthorizationPage.apexp%253Fsource%253D" +
-          initSession.source +
-          "%2526display%253Dtouch%26RegistrationSubChannel%3DhOn%26display%3Dtouch%26inst%3D68%26ec%3D302%26System%3DIoT_Mobile_App&aura.token=null",
-      })
-        .then((res) => {
-          this.log.debug(JSON.stringify(res.data));
-          if (res.data.events && res.data.events[0] && res.data.events[0].attributes && res.data.events[0].attributes) {
-            return res.data.events[0].attributes.values.url;
-          }
-          this.log.error("Missing step1 url");
-          this.log.error(JSON.stringify(res.data));
-        })
-        .catch((error) => {
-          this.log.error("Login step #3 failed");
-          this.log.error(error);
-          error.response && this.log.error(JSON.stringify(error.response.data));
-        });
     }
+
     if (!step01Url || this.config.type === "wizard") {
       return;
     }
@@ -572,6 +525,86 @@ class Hoover extends utils.Adapter {
                                                 "30": {
                                                     "fixedValue": "1",
                                                     "typology": "fixed"
+                                                },
+                                                "45": {
+                                                    "fixedValue": "2",
+                                                    "typology": "fixed"
+                                                },
+                                                "59": {
+                                                    "fixedValue": "3",
+                                                    "typology": "fixed"
+                                                },
+                                                "70": {
+                                                    "fixedValue": "4",
+                                                    "typology": "fixed"
+                                                },
+                                                "80": {
+                                                    "fixedValue": "5",
+                                                    "typology": "fixed"
+                                                },
+                                                "90": {
+                                                    "fixedValue": "6",
+                                                    "typology": "fixed"
+                                                },
+                                                "100": {
+                                                    "fixedValue": "7",
+                                                    "typology": "fixed"
+                                                },
+                                                "110": {
+                                                    "fixedValue": "8",
+                                                    "typology": "fixed"
+                                                },
+                                                "120": {
+                                                    "fixedValue": "9",
+                                                    "typology": "fixed"
+                                                },
+                                                "130": {
+                                                    "fixedValue": "10",
+                                                    "typology": "fixed"
+                                                },
+                                                "140": {
+                                                    "fixedValue": "11",
+                                                    "typology": "fixed"
+                                                },
+                                                "150": {
+                                                    "fixedValue": "12",
+                                                    "typology": "fixed"
+                                                },
+                                                "160": {
+                                                    "fixedValue": "13",
+                                                    "typology": "fixed"
+                                                },
+                                                "170": {
+                                                    "fixedValue": "14",
+                                                    "typology": "fixed"
+                                                },
+                                                "180": {
+                                                    "fixedValue": "15",
+                                                    "typology": "fixed"
+                                                },
+                                                "190": {
+                                                    "fixedValue": "16",
+                                                    "typology": "fixed"
+                                                },
+                                                "200": {
+                                                    "fixedValue": "17",
+                                                    "typology": "fixed"
+                                                },
+                                                "210": {
+                                                    "fixedValue": "18",
+                                                    "typology": "fixed"
+                                                },
+                                                "220": {
+                                                    "fixedValue": "19",
+                                                    "typology": "fixed"
+                                                }
+                                            }
+                                        },
+                                        "dryLevel": {
+                                            "opt3": {
+                                                "1": {
+                                                    "fixedValue": "1",
+                                                    "typology": "fixed"
                                                 }
                                             }
                                         }
@@ -739,7 +772,6 @@ class Hoover extends utils.Adapter {
       }
     }
   }
-
   async refreshToken() {
     if (!this.session) {
       this.log.error("No session found relogin");
@@ -815,10 +847,6 @@ class Hoover extends utils.Adapter {
       });
   }
 
-  /**
-   * Is called when adapter shuts down - callback has to be called under any circumstances!
-   * @param {() => void} callback
-   */
   onUnload(callback) {
     try {
       this.setState("info.connection", false, true);
@@ -832,12 +860,7 @@ class Hoover extends utils.Adapter {
     }
   }
 
-  /**
-   * Is called if a subscribed state changes
-   * @param {string} id
-   * @param {ioBroker.State | null | undefined} state
-   */
-  async onStateChange(id, state) {
+  onStateChange(id, state) {
     if (state) {
       if (!state.ack) {
         const deviceId = id.split(".")[2];
@@ -934,11 +957,7 @@ class Hoover extends utils.Adapter {
 }
 
 if (require.main !== module) {
-  // Export the constructor in compact mode
-  /**
-   * @param {Partial<utils.AdapterOptions>} [options={}]
-   */
   module.exports = (options) => new Hoover(options);
 } else {
-  // otherwise start the instance directly
   new Hoover();
+}
