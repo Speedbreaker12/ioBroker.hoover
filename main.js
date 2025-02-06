@@ -4,8 +4,7 @@
  * Created with @iobroker/create-adapter v1.34.1
  */
 
-// The adapter-core module gives you access to the core ioBroker functions
-// you need to create an adapter
+// Die Adapter-Core-Module gibt dir Zugriff auf die ioBroker-Kernfunktionen
 const utils = require("@iobroker/adapter-core");
 const axios = require("axios").default;
 const Json2iob = require("json2iob");
@@ -41,10 +40,56 @@ class Hoover extends utils.Adapter {
   }
 
   /**
-   * Is called when databases are connected and adapter received configuration.
+   * Prüft, ob die Antwort HTML enthält, die auf einen erzwungenen Passwortwechsel hinweist.
+   * Wird ein solcher Hinweis gefunden, wird ein Fehler geloggt und eine Exception geworfen.
+   * @param {*} response 
+   * @returns {*} response
    */
+  checkResponseForHtml(response) {
+    if (response && response.data && typeof response.data === "string") {
+      if (
+        response.data.includes("Change Your Password") ||
+        response.data.includes("ChangePassword")
+      ) {
+        this.log.error(
+          "Forced password change required. Received HTML page asking for password change."
+        );
+        this.log.error(
+          "Bitte ändern Sie Ihr Passwort unter: https://account2.hon-smarthome.com/_ui/system/security/ChangePassword?setupid=ChangePassword"
+        );
+        // Hier kannst du den Flow abbrechen, indem du z.B. eine Exception wirfst:
+        throw new Error("Password change required");
+      }
+    }
+    return response;
+  }
+
+  /**
+   * Extrahiert versteckte Eingabefelder und die Action-URL aus einem HTML-Formular.
+   * @param {string} html 
+   * @returns {{formUrl: string, hiddenInputs: Object}}
+   */
+  extractInputsAndFormUrl(html) {
+    const hiddenInputs = {};
+    let formUrl = html.split("<form")[1].split('action="')[1].split('"')[0];
+    formUrl = formUrl.replace(/&amp;/g, "&");
+    const inputs = html.split("<input");
+    for (const input of inputs) {
+      let name = input.split('id="')[1] ? input.split('id="')[1].split('"')[0] : "";
+      if (input.includes('name="')) {
+        name = input.split('name="')[1].split('"')[0];
+      }
+      let value = "";
+      if (input.includes('value="')) {
+        value = input.split('value="')[1].split('"')[0];
+      }
+      hiddenInputs[name] = value;
+    }
+    return { formUrl, hiddenInputs };
+  }
+
   async onReady() {
-    // Reset the connection indicator during startup
+    // Reset der Verbindungsanzeige beim Start
     this.setState("info.connection", false, true);
     if (this.config.interval < 0.5) {
       this.log.info("Set interval to minimum 0.5");
@@ -87,26 +132,6 @@ class Hoover extends utils.Adapter {
     }
   }
 
-  extractInputsAndFormUrl(html) {
-    const hiddenInputs = {};
-    let formUrl = html.split("<form")[1].split('action="')[1].split('"')[0];
-    formUrl = formUrl.replace(/&amp;/g, "&");
-    const inputs = html.split("<input");
-    for (const input of inputs) {
-      // if (input.includes('type="hidden"')) {
-      let name = input.split('id="')[1].split('"')[0];
-      if (input.includes('name="')) {
-        name = input.split('name="')[1].split('"')[0];
-      }
-      let value = "";
-      if (input.includes('value="')) {
-        value = input.split('value="')[1].split('"')[0];
-      }
-      hiddenInputs[name] = value;
-      // }
-    }
-    return { formUrl, hiddenInputs };
-  }
   async login() {
     let loginUrl =
       "https://account2.hon-smarthome.com/services/oauth2/authorize/expid_Login?response_type=token+id_token&client_id=3MVG9QDx8IX8nP5T2Ha8ofvlmjLZl5L_gvfbT9.HJvpHGKoAS_dcMN8LYpTSYeVFCraUnV.2Ag1Ki7m4znVO6&redirect_uri=hon%3A%2F%2Fmobilesdk%2Fdetect%2Foauth%2Fdone&display=touch&scope=api%20openid%20refresh_token%20web&nonce=b8f38cb9-26f0-4aed-95b4-aa504f5e1971";
@@ -115,33 +140,42 @@ class Hoover extends utils.Adapter {
         "https://haiereurope.my.site.com/HooverApp/services/oauth2/authorize?client_id=3MVG9QDx8IX8nP5T2Ha8ofvlmjKuido4mcuSVCv4GwStG0Lf84ccYQylvDYy9d_ZLtnyAPzJt4khJoNYn_QVB&redirect_uri=hoover://mobilesdk/detect/oauth/done&display=touch&device_id=245D4D83-98DE-4073-AEE8-1DB085DC0159&response_type=token&scope=api%20id%20refresh_token%20web%20openid";
     }
 
-    const initUrl = await this.requestClient({
-      method: "get",
-      url: loginUrl,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de-de",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-      },
-      maxRedirects: 0,
-    })
-      .then((res) => {
-        this.log.error("Login step #1 failed");
-        this.log.debug(JSON.stringify(res.data));
-        return "";
+    let initUrl;
+    try {
+      initUrl = await this.requestClient({
+        method: "get",
+        url: loginUrl,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "de-de",
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+        },
+        maxRedirects: 0,
       })
-      .catch((error) => {
-        if (error.response && error.response.status === 302) {
-          return error.response.headers.location;
-        }
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-      });
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.error("Login step #1 failed");
+          this.log.debug(JSON.stringify(res.data));
+          return "";
+        })
+        .catch((error) => {
+          if (error.response && error.response.status === 302) {
+            return error.response.headers.location;
+          }
+          this.log.error(error);
+          error.response && this.log.error(JSON.stringify(error.response.data));
+        });
+    } catch (err) {
+      this.log.error("Fehler in Login step #1: " + err.message);
+      return;
+    }
     if (!initUrl) {
       return;
     }
     const initSession = qs.parse(initUrl.split("?")[1]);
-    let fwurl = "https://he-accounts.force.com/SmartHome/s/login/?System=IoT_Mobile_App&RegistrationSubChannel=hOn";
+    let fwurl =
+      "https://he-accounts.force.com/SmartHome/s/login/?System=IoT_Mobile_App&RegistrationSubChannel=hOn";
     fwurl =
       "https://account2.hon-smarthome.com/NewhOnLogin?display=touch%2F&ec=302&startURL=%2F%2Fsetup%2Fsecur%2FRemoteAccessAuthorizationPage.apexp%3Fsource%3D" +
       initSession.source;
@@ -151,278 +185,347 @@ class Hoover extends utils.Adapter {
         initSession.source +
         "%26display%3Dtouch";
     }
-    const { formUrl, hiddenInputs } = await this.requestClient({
-      method: "get",
-      url: fwurl,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de-de",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-      },
-    })
-      .then((res) => {
-        this.log.debug(res.data);
-        return this.extractInputsAndFormUrl(res.data);
-      })
-      .catch((error) => {
-        this.log.error("Login step #2 failed");
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-        return {};
-      });
-
-    if (this.config.type === "wizard") {
-      await this.requestClient({
-        method: "post",
-        url: "https://haiereurope.my.site.com/HooverApp/login",
+    let formData;
+    try {
+      formData = await this.requestClient({
+        method: "get",
+        url: fwurl,
         headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          Connection: "keep-alive",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+          Accept:
+            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
           "Accept-Language": "de-de",
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
         },
-        data: qs.stringify({
-          pqs:
-            "?startURL=%2FHooverApp%2Fsetup%2Fsecur%2FRemoteAccessAuthorizationPage.apexp%3Fsource%3" +
-            initSession.source +
-            "%26display%3Dtouch&ec=302&display=touch&inst=68",
-          un: this.config.username,
-          width: "414",
-          height: "736",
-          hasRememberUn: "true",
-          startURL: "/HooverApp/setup/secur/RemoteAccessAuthorizationPage.apexp?source=" + initSession.source + "&display=touch",
-          loginURL: "",
-          loginType: "",
-          useSecure: "true",
-          local: "",
-          lt: "standard",
-          qs: "",
-          locale: "de",
-          oauth_token: "",
-          oauth_callback: "",
-          login: "",
-          serverid: "",
-          display: "touch",
-          username: this.config.username,
-          pw: this.config.password,
-          rememberUn: "on",
-        }),
       })
-        .then(async (res) => {
-          this.log.debug(JSON.stringify(res.data));
-          if (this.config.type === "wizard") {
-            const forwardUrl = res.data.split('<a href="')[1].split('">')[0];
-            const forward2Url = await this.requestClient({ method: "get", url: forwardUrl }).then((res) => {
-              this.log.debug(JSON.stringify(res.data));
-              return res.data.split("window.location.href ='")[1].split("';")[0];
-            });
-            const forward3Url = await this.requestClient({ method: "get", url: "https://haiereurope.my.site.com" + forward2Url }).then(
-              (res) => {
-                this.log.debug(JSON.stringify(res.data));
-                return res.data.split("window.location.href ='")[1].split(";")[0];
-              },
-            );
-            this.log.debug(JSON.stringify(forward3Url));
-            this.session = qs.parse(forward3Url.split("#")[1]);
-            await this.refreshToken();
-          } else {
-            if (res.data.events && res.data.events[0] && res.data.events[0].attributes && res.data.events[0].attributes) {
-              return res.data.events[0].attributes.values.url;
-            }
-            this.log.error("Missing step1 url");
-            this.log.error(JSON.stringify(res.data));
-          }
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.debug(res.data);
+          return this.extractInputsAndFormUrl(res.data);
         })
         .catch((error) => {
-          this.log.error("Login step #3 failed");
+          this.log.error("Login step #2 failed");
           this.log.error(error);
           error.response && this.log.error(JSON.stringify(error.response.data));
+          return {};
         });
+    } catch (err) {
+      this.log.error("Fehler in Login step #2: " + err.message);
       return;
     }
-    hiddenInputs["j_id0:loginForm:username"] = this.config.username;
-    hiddenInputs["j_id0:loginForm:password"] = this.config.password;
-    const step02Url = await this.requestClient({
-      method: "post",
-      url: formUrl,
-      headers: {
-        Accept: "*/*",
-        "Accept-Language": "de-de",
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-      data: hiddenInputs,
-    })
-      .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
-        if (res.data.includes("window.location.replace('")) {
-          return res.data.split("window.location.replace('")[1].split("')")[0];
-        }
-        this.log.error("Missing step2 url");
-        this.log.error(JSON.stringify(res.data));
+    if (this.config.type === "wizard") {
+      try {
+        await this.requestClient({
+          method: "post",
+          url: "https://haiereurope.my.site.com/HooverApp/login",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Connection: "keep-alive",
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "User-Agent":
+              "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+            "Accept-Language": "de-de",
+          },
+          data: qs.stringify({
+            pqs:
+              "?startURL=%2FHooverApp%2Fsetup%2Fsecur%2FRemoteAccessAuthorizationPage.apexp?source=" +
+              initSession.source +
+              "&display=touch&ec=302&display=touch&inst=68",
+            un: this.config.username,
+            width: "414",
+            height: "736",
+            hasRememberUn: "true",
+            startURL:
+              "/HooverApp/setup/secur/RemoteAccessAuthorizationPage.apexp?source=" +
+              initSession.source +
+              "&display=touch",
+            loginURL: "",
+            loginType: "",
+            useSecure: "true",
+            local: "",
+            lt: "standard",
+            qs: "",
+            locale: "de",
+            oauth_token: "",
+            oauth_callback: "",
+            login: "",
+            serverid: "",
+            display: "touch",
+            username: this.config.username,
+            pw: this.config.password,
+            rememberUn: "on",
+          }),
+        })
+          .then(async (res) => {
+            this.checkResponseForHtml(res);
+            this.log.debug(JSON.stringify(res.data));
+            if (this.config.type === "wizard") {
+              const forwardUrl = res.data.split('<a href="')[1].split('">')[0];
+              const forward2Url = await this.requestClient({
+                method: "get",
+                url: forwardUrl,
+              }).then((res) => {
+                this.checkResponseForHtml(res);
+                this.log.debug(JSON.stringify(res.data));
+                return res.data.split("window.location.href ='")[1].split("';")[0];
+              });
+              const forward3Url = await this.requestClient({
+                method: "get",
+                url: "https://haiereurope.my.site.com" + forward2Url,
+              }).then((res) => {
+                this.checkResponseForHtml(res);
+                this.log.debug(JSON.stringify(res.data));
+                return res.data.split("window.location.href ='")[1].split(";")[0];
+              });
+              this.log.debug(JSON.stringify(forward3Url));
+              this.session = qs.parse(forward3Url.split("#")[1]);
+              await this.refreshToken();
+            } else {
+              if (res.data.events && res.data.events[0] && res.data.events[0].attributes) {
+                return res.data.events[0].attributes.values.url;
+              }
+              this.log.error("Missing step1 url");
+              this.log.error(JSON.stringify(res.data));
+            }
+          })
+          .catch((error) => {
+            this.log.error("Login step #3 failed");
+            this.log.error(error);
+            error.response &&
+              this.log.error(JSON.stringify(error.response.data));
+          });
+        return;
+      } catch (err) {
+        this.log.error("Fehler in Login step #3: " + err.message);
+        return;
+      }
+    }
+    // Nicht-wizard: Fortfahren mit dem übermittelten Formular
+    // Hier werden die übergebenen Login-Daten in das Formular eingetragen.
+    formData.hiddenInputs["j_id0:loginForm:username"] = this.config.username;
+    formData.hiddenInputs["j_id0:loginForm:password"] = this.config.password;
+    let step02Url;
+    try {
+      step02Url = await this.requestClient({
+        method: "post",
+        url: formData.formUrl,
+        headers: {
+          Accept: "*/*",
+          "Accept-Language": "de-de",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
+        data: qs.stringify(formData.hiddenInputs),
       })
-      .catch((error) => {
-        this.log.error("Login step #4 failed");
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-      });
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.debug(JSON.stringify(res.data));
+          if (res.data.includes("window.location.replace('")) {
+            return res.data.split("window.location.replace('")[1].split("')")[0];
+          }
+          this.log.error("Missing step2 url");
+          this.log.error(JSON.stringify(res.data));
+        })
+        .catch((error) => {
+          this.log.error("Login step #4 failed");
+          this.log.error(error);
+          error.response &&
+            this.log.error(JSON.stringify(error.response.data));
+        });
+    } catch (err) {
+      this.log.error("Fehler in Login step #4: " + err.message);
+      return;
+    }
     if (!step02Url) {
       return;
     }
-
-    const step03Url = await this.requestClient({
-      method: "get",
-      url: step02Url,
-      headers: {
-        Accept: "*/*",
-        "Accept-Language": "de-de",
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-    })
-      .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
-        if (res.data.includes(`window.location.replace("`)) {
-          return res.data.split(`window.location.replace("`)[1].split(`")`)[0];
-        }
-        this.log.error("Login failed please logout and login in your hON and accept new terms");
-        this.log.error(JSON.stringify(res.data));
+    let step03Url;
+    try {
+      step03Url = await this.requestClient({
+        method: "get",
+        url: step02Url,
+        headers: {
+          Accept: "*/*",
+          "Accept-Language": "de-de",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
       })
-      .catch((error) => {
-        this.log.error("Login step #5 failed");
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-      });
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.debug(JSON.stringify(res.data));
+          if (res.data.includes(`window.location.replace("`)) {
+            return res.data.split(`window.location.replace("`)[1].split(`")`)[0];
+          }
+          this.log.error("Login failed please logout and login in your hON and accept new terms");
+          this.log.error(JSON.stringify(res.data));
+        })
+        .catch((error) => {
+          this.log.error("Login step #5 failed");
+          this.log.error(error);
+          error.response &&
+            this.log.error(JSON.stringify(error.response.data));
+        });
+    } catch (err) {
+      this.log.error("Fehler in Login step #5: " + err.message);
+      return;
+    }
     if (!step03Url) {
       return;
     }
-    const step03bUrl = await this.requestClient({
-      method: "get",
-      url: step03Url,
-      headers: {
-        Accept: "*/*",
-        "Accept-Language": "de-de",
-        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-      },
-    })
-      .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
-        if (res.data.includes(`window.location.replace('`)) {
-          return res.data.split(`window.location.replace('`)[1].split(`')`)[0];
-        }
-        this.log.error("Login failed please logout and login in your hON and accept new terms");
-        this.log.error(JSON.stringify(res.data));
+    let step03bUrl;
+    try {
+      step03bUrl = await this.requestClient({
+        method: "get",
+        url: step03Url,
+        headers: {
+          Accept: "*/*",
+          "Accept-Language": "de-de",
+          "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        },
       })
-      .catch((error) => {
-        this.log.error("Login step #5 failed");
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-      });
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.debug(JSON.stringify(res.data));
+          if (res.data.includes(`window.location.replace('`)) {
+            return res.data.split(`window.location.replace('`)[1].split(`')`)[0];
+          }
+          this.log.error("Login failed please logout and login in your hON and accept new terms");
+          this.log.error(JSON.stringify(res.data));
+        })
+        .catch((error) => {
+          this.log.error("Login step #5 failed");
+          this.log.error(error);
+          error.response &&
+            this.log.error(JSON.stringify(error.response.data));
+        });
+    } catch (err) {
+      this.log.error("Fehler in Login step #5b: " + err.message);
+      return;
+    }
     if (!step03bUrl) {
       return;
     }
-    const step04Url = await this.requestClient({
-      method: "get",
-      url: "https://account2.hon-smarthome.com" + step03bUrl,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-        "Accept-Language": "de-de",
-      },
-    })
-      .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
-        if (!res.data.includes("oauth_error_code") && res.data.includes("window.location.replace(")) {
-          return res.data.split("window.location.replace('")[1].split("')")[0];
-        }
-        this.log.error("Missing step4 url");
-        this.log.error(JSON.stringify(res.data));
+    let step04Url;
+    try {
+      step04Url = await this.requestClient({
+        method: "get",
+        url: "https://account2.hon-smarthome.com" + step03bUrl,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "User-Agent":
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+          "Accept-Language": "de-de",
+        },
       })
-      .catch((error) => {
-        this.log.error("Login step #6 failed");
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-      });
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.debug(JSON.stringify(res.data));
+          if (
+            !res.data.includes("oauth_error_code") &&
+            res.data.includes("window.location.replace(")
+          ) {
+            return res.data.split("window.location.replace('")[1].split("')")[0];
+          }
+          this.log.error("Missing step4 url");
+          this.log.error(JSON.stringify(res.data));
+        })
+        .catch((error) => {
+          this.log.error("Login step #6 failed");
+          this.log.error(error);
+          error.response &&
+            this.log.error(JSON.stringify(error.response.data));
+        });
+    } catch (err) {
+      this.log.error("Fehler in Login step #6: " + err.message);
+      return;
+    }
     if (!step04Url) {
       return;
     }
-
     this.session = qs.parse(step04Url.split("#")[1]);
 
-    const awsLogin = await this.requestClient({
-      method: "post",
-      url: "https://api-iot.he.services/auth/v1/login",
-      headers: {
-        accept: "application/json, text/plain, */*",
-        "content-type": "application/json;charset=utf-8",
-        "user-agent": "hOn/1 CFNetwork/1240.0.4 Darwin/20.6.0",
-        "id-token": this.session.id_token,
-        "accept-language": "de-de",
-      },
-      data: {
-        appVersion: "2.0.9",
-        firebaseToken:
-          "cvufm5cb9rI:APA91bG9jRyOd35YuAhnx-B0OW9WZ27QRJZUeYKGSfCQv9eDHr7rBHTCMt0pzY2R3HELIG844tDZ-Ip3dMA1_3jRBgYdPYt9byKcYd6XAi6jqJhiIimfQlAFeb5ZZvDmeqib_2UWl3yY",
-        mobileId: "245D4D83-98DE-4073-AEE8-1DB085DC0158",
-        osVersion: "14.8",
-        os: "ios",
-        deviceModel: "iPhone10,5",
-      },
-    })
-      .then((res) => {
-        this.log.debug("Receiving aws infos");
-        this.log.debug(JSON.stringify(res.data));
-        if (res.data.cognitoUser) {
-          return res.data;
-        }
-        this.log.error(JSON.stringify(res.data));
-      })
-      .catch((error) => {
-        this.log.error("Login step #7 failed");
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
+    try {
+      const awsLogin = await this.requestClient({
+        method: "post",
+        url: "https://api-iot.he.services/auth/v1/login",
+        headers: {
+          accept: "application/json, text/plain, */*",
+          "content-type": "application/json;charset=utf-8",
+          "user-agent": "hOn/1 CFNetwork/1240.0.4 Darwin/20.6.0",
+          "id-token": this.session.id_token,
+          "accept-language": "de-de",
+        },
+        data: {
+          appVersion: "2.0.9",
+          firebaseToken:
+            "cvufm5cb9rI:APA91bG9jRyOd35YuAhnx-B0OW9WZ27QRJZUeYKGSfCQv9eDHr7rBHTCMt0pzY2R3HELIG844tDZ-Ip3dMA1_3jRBgYdPYt9byKcYd6XAi6jqJhiIimfQlAFeb5ZZvDmeqib_2UWl3yY",
+          mobileId: "245D4D83-98DE-4073-AEE8-1DB085DC0158",
+          osVersion: "14.8",
+          os: "ios",
+          deviceModel: "iPhone10,5",
+        },
       });
-    if (!awsLogin) {
-      return;
-    }
-    this.session = { ...this.session, ...awsLogin.cognitoUser };
-    this.session.tokenSigned = awsLogin.tokenSigned;
-    const awsPayload = JSON.stringify({
-      IdentityId: awsLogin.cognitoUser.IdentityId,
-      Logins: {
-        "cognito-identity.amazonaws.com": awsLogin.cognitoUser.Token,
-      },
-    });
+      this.checkResponseForHtml(awsLogin);
+      this.log.debug("Receiving aws infos");
+      this.log.debug(JSON.stringify(awsLogin.data));
+      if (awsLogin.data.cognitoUser) {
+        // awsLogin ok
+      } else {
+        this.log.error(JSON.stringify(awsLogin.data));
+      }
+      if (!awsLogin) {
+        return;
+      }
+      this.session = { ...this.session, ...awsLogin.data.cognitoUser };
+      this.session.tokenSigned = awsLogin.data.tokenSigned;
+      const awsPayload = JSON.stringify({
+        IdentityId: awsLogin.data.cognitoUser.IdentityId,
+        Logins: {
+          "cognito-identity.amazonaws.com": awsLogin.data.cognitoUser.Token,
+        },
+      });
 
-    await this.requestClient({
-      method: "post",
-      url: "https://cognito-identity.eu-west-1.amazonaws.com/",
-      headers: {
-        accept: "*/*",
-        "content-type": "application/x-amz-json-1.1",
-        "x-amz-target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
-        "user-agent": "hOn/3 CFNetwork/1240.0.4 Darwin/20.6.0",
-        "x-amz-content-sha256": crypto.createHash("sha256").update(awsPayload).digest("hex"),
-        "x-amz-user-agent": "aws-amplify/1.2.3 react-native aws-amplify/1.2.3 react-native callback",
-        "accept-language": "de-de",
-      },
-      data: awsPayload,
-    })
-      .then((res) => {
-        this.log.debug(JSON.stringify(res.data));
-        this.log.info("Login successful");
-        this.setState("info.connection", true, true);
+      await this.requestClient({
+        method: "post",
+        url: "https://cognito-identity.eu-west-1.amazonaws.com/",
+        headers: {
+          accept: "*/*",
+          "content-type": "application/x-amz-json-1.1",
+          "x-amz-target": "AWSCognitoIdentityService.GetCredentialsForIdentity",
+          "user-agent": "hOn/3 CFNetwork/1240.0.4 Darwin/20.6.0",
+          "x-amz-content-sha256": crypto
+            .createHash("sha256")
+            .update(awsPayload)
+            .digest("hex"),
+          "x-amz-user-agent":
+            "aws-amplify/1.2.3 react-native aws-amplify/1.2.3 react-native callback",
+          "accept-language": "de-de",
+        },
+        data: awsPayload,
       })
-      .catch((error) => {
-        this.log.error("Login step #aws failed");
-        this.log.error(JSON.stringify(awsLogin));
-        this.log.error(error);
-        error.response && this.log.error(JSON.stringify(error.response.data));
-      });
+        .then((res) => {
+          this.checkResponseForHtml(res);
+          this.log.debug(JSON.stringify(res.data));
+          this.log.info("Login successful");
+          this.setState("info.connection", true, true);
+        })
+        .catch((error) => {
+          this.log.error("Login step #aws failed");
+          this.log.error(JSON.stringify(awsLogin));
+          this.log.error(error);
+          error.response &&
+            this.log.error(JSON.stringify(error.response.data));
+        });
+    } catch (err) {
+      this.log.error("Fehler im AWS-Login: " + err.message);
+    }
   }
+
   async getDeviceList() {
     let deviceListUrl = "https://api-iot.he.services/commands/v1/appliance";
     if (this.config.type === "wizard") {
-      deviceListUrl = "https://simply-fi.herokuapp.com/api/v1/appliances.json?with_hidden_programs=1";
+      deviceListUrl =
+        "https://simply-fi.herokuapp.com/api/v1/appliances.json?with_hidden_programs=1";
     }
     await this.requestClient({
       method: "get",
@@ -692,6 +795,7 @@ class Hoover extends utils.Adapter {
         error.response && this.log.error(JSON.stringify(error.response.data));
       });
   }
+
   async connectMqtt() {
     this.log.info("Connecting to MQTT");
 
@@ -777,12 +881,7 @@ class Hoover extends utils.Adapter {
               data = data.payload;
             }
 
-            const forceIndex = null;
-            const preferedArrayName = null;
-
             this.json2iob.parse(id + "." + element.path, data, {
-              forceIndex: forceIndex,
-              preferedArrayName: preferedArrayName,
               channelName: element.desc,
             });
           })
@@ -806,6 +905,7 @@ class Hoover extends utils.Adapter {
       }
     }
   }
+
   async refreshToken() {
     if (!this.session) {
       this.log.error("No session found relogin");
@@ -833,6 +933,7 @@ class Hoover extends utils.Adapter {
           refresh_token: this.session.refresh_token,
         }),
       }).then((res) => {
+        this.checkResponseForHtml(res);
         this.log.debug(JSON.stringify(res.data));
         this.session = { ...this.session, ...res.data };
       });
@@ -860,6 +961,7 @@ class Hoover extends utils.Adapter {
       }),
     })
       .then((res) => {
+        this.checkResponseForHtml(res);
         this.log.debug(JSON.stringify(res.data));
         this.session = { ...this.session, ...res.data };
         this.device.updateCustomAuthHeaders({
@@ -882,8 +984,8 @@ class Hoover extends utils.Adapter {
   }
 
   /**
-   * Is called when adapter shuts down - callback has to be called under any circumstances!
-   * @param {() => void} callback
+   * Wird beim Herunterfahren des Adapters aufgerufen.
+   * @param {() => void} callback 
    */
   onUnload(callback) {
     try {
@@ -900,9 +1002,9 @@ class Hoover extends utils.Adapter {
   }
 
   /**
-   * Is called if a subscribed state changes
-   * @param {string} id
-   * @param {ioBroker.State | null | undefined} state
+   * Wird aufgerufen, wenn ein abonniertes State sich ändert.
+   * @param {string} id 
+   * @param {ioBroker.State | null | undefined} state 
    */
   async onStateChange(id, state) {
     if (state) {
@@ -917,7 +1019,6 @@ class Hoover extends utils.Adapter {
 
         if (command === "refresh") {
           this.updateDevices();
-
           return;
         }
         const dt = new Date().toISOString();
@@ -1001,12 +1102,9 @@ class Hoover extends utils.Adapter {
 }
 
 if (require.main !== module) {
-  // Export the constructor in compact mode
-  /**
-   * @param {Partial<utils.AdapterOptions>} [options={}]
-   */
+  // Export in kompakter Form
   module.exports = (options) => new Hoover(options);
 } else {
-  // otherwise start the instance directly
+  // Instanz direkt starten
   new Hoover();
 }
